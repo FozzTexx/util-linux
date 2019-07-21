@@ -229,6 +229,7 @@ enum {
 #define F_LONGHNAME	(1<<19) /* Show Full qualified hostname */
 #define F_NOHINTS	(1<<20) /* Don't print hints */
 #define F_REMOTE	(1<<21) /* Add '-h fakehost' to login(1) command line */
+#define F_TWOSTOP	(1<<22) /* Use 2 stop bits */
 
 #define serial_tty_option(opt, flag)	\
 	(((opt)->flags & (F_VCONSOLE|(flag))) == (flag))
@@ -737,6 +738,7 @@ static void parse_args(int argc, char **argv, struct options *op)
 		{  "timeout",	     required_argument,  NULL,  't'  },
 		{  "detect-case",    no_argument,	 NULL,  'U'  },
 		{  "wait-cr",	     no_argument,	 NULL,  'w'  },
+		{  "2stopbits",	     no_argument,	 NULL,  '2'  },
 		{  "nohints",        no_argument,        NULL,  NOHINTS_OPTION },
 		{  "nohostname",     no_argument,	 NULL,  NOHOSTNAME_OPTION },
 		{  "long-hostname",  no_argument,	 NULL,  LONGHOSTNAME_OPTION },
@@ -749,7 +751,7 @@ static void parse_args(int argc, char **argv, struct options *op)
 	};
 
 	while ((c = getopt_long(argc, argv,
-			   "8a:cC:d:Ef:hH:iI:Jl:L::mnNo:pP:r:Rst:Uw", longopts,
+			   "8a:cC:d:Ef:hH:iI:Jl:L::mnNo:pP:r:Rst:Uw2", longopts,
 			    NULL)) != -1) {
 		switch (c) {
 		case '8':
@@ -841,6 +843,9 @@ static void parse_args(int argc, char **argv, struct options *op)
 			break;
 		case 'w':
 			op->flags |= F_WAITCRLF;
+			break;
+		case '2':
+			op->flags |= F_TWOSTOP;
 			break;
 		case NOHINTS_OPTION:
 			op->flags |= F_NOHINTS;
@@ -1256,6 +1261,9 @@ static void termio_init(struct options *op, struct termios *tp)
 		if ((tp->c_cflag & (CS8|PARODD|PARENB)) == CS8)
 			op->flags |= F_EIGHTBITS;
 
+		if (tp->c_cflag & CSTOPB)
+			op->flags |= F_TWOSTOP;
+
 		if ((op->flags & F_NOCLEAR) == 0)
 			termio_clear(STDOUT_FILENO);
 		return;
@@ -1347,6 +1355,12 @@ static void termio_init(struct options *op, struct termios *tp)
 	if (op->flags & F_RTSCTS)
 		tp->c_cflag |= CRTSCTS;
 #endif
+	if (op->flags & F_TWOSTOP) {
+		tp->c_cflag |= CSTOPB;
+		tp->c_oflag &= ~CRDLY;
+		tp->c_oflag |= CR3;
+	}
+
 	 /* Flush input and output queues, important for modems! */
 	tcflush(STDIN_FILENO, TCIOFLUSH);
 
@@ -2284,12 +2298,21 @@ static void termio_final(struct options *op, struct termios *tp, struct chardata
 #ifdef OLCUC
 		tp->c_oflag |= OLCUC;
 #endif
+#ifdef IEXTEN
+		/* Needed on Linux to make IUCLC and OLCUC work */
+		tp->c_lflag |= IEXTEN;
+#endif
 	}
 	/* Optionally enable hardware flow control. */
 #ifdef	CRTSCTS
 	if (op->flags & F_RTSCTS)
 		tp->c_cflag |= CRTSCTS;
 #endif
+	if (op->flags & F_TWOSTOP) {
+		tp->c_cflag |= CSTOPB;
+		tp->c_oflag &= ~CRDLY;
+		tp->c_oflag |= CR0;
+	}
 
 	/* Finally, make the new settings effective. */
 	if (tcsetattr(STDIN_FILENO, TCSANOW, tp) < 0)
@@ -2361,6 +2384,7 @@ static void __attribute__((__noreturn__)) usage(void)
 	fputs(_(" -t, --timeout <number>     login process timeout\n"), out);
 	fputs(_(" -U, --detect-case          detect uppercase terminal\n"), out);
 	fputs(_(" -w, --wait-cr              wait carriage-return\n"), out);
+	fputs(_(" -2, --2stopbits            use 2 stop bits\n"), out);
 	fputs(_("     --nohints              do not print hints\n"), out);
 	fputs(_("     --nohostname           no hostname at all will be shown\n"), out);
 	fputs(_("     --long-hostname        show full qualified hostname\n"), out);
