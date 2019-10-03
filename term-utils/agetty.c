@@ -2311,7 +2311,7 @@ static void termio_final(struct options *op, struct termios *tp, struct chardata
 	if (op->flags & F_TWOSTOP) {
 		tp->c_cflag |= CSTOPB;
 		tp->c_oflag &= ~CRDLY;
-		tp->c_oflag |= CR0;
+		tp->c_oflag |= CR3;
 	}
 
 	/* Finally, make the new settings effective. */
